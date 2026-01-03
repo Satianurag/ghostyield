@@ -1,4 +1,5 @@
 import { useAccount, useReadContract, useReadContracts } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { Link } from 'react-router-dom';
 import { CONTRACTS, GHOST_LENDING_ABI, PRICE_FEED_ABI, API_URL } from '../config/contracts';
 import { formatUnits } from 'viem';
@@ -7,6 +8,7 @@ import { useState } from 'react';
 
 export default function Dashboard() {
     const { address } = useAccount();
+    const btcWallet = useBitcoinWallet();
 
     // 1. Get User Vault IDs
     const { data: userVaultIds } = useReadContract({
@@ -111,7 +113,7 @@ export default function Dashboard() {
         return 'text-red-400';
     };
 
-    const btcWallet = useBitcoinWallet();
+
     const [unlockingId, setUnlockingId] = useState<string | null>(null);
     const [selectedUtxo, setSelectedUtxo] = useState<string>('');
     const [error, setError] = useState<string | null>(null);
@@ -182,12 +184,39 @@ export default function Dashboard() {
             {/* Header */}
             <div>
                 <h1 className="text-3xl font-bold mb-2">Dashboard</h1>
-                <p className="text-gray-400">Manage your Bitcoin lending positions {address && `(${address.slice(0, 6)}...)`}</p>
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-400">
+                    <p>Manage your Bitcoin lending positions</p>
+                    {address && (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-blue-500/10 rounded-md border border-blue-500/20">
+                            <span className="w-2 h-2 rounded-full bg-blue-500" />
+                            <span className="font-mono text-blue-300">EVM: {address.slice(0, 6)}...{address.slice(-4)}</span>
+                        </div>
+                    )}
+                    {btcWallet.address && (
+                        <div className="flex items-center gap-1.5 px-2 py-0.5 bg-btc/10 rounded-md border border-btc/20">
+                            <span className="w-2 h-2 rounded-full bg-btc" />
+                            <span className="font-mono text-btc">BTC: {btcWallet.address.slice(0, 6)}...{btcWallet.address.slice(-4)}</span>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {error && (
                 <div className="bg-red-500/20 border border-red-500/50 text-red-200 p-4 rounded-xl">
                     {error}
+                </div>
+            )}
+
+            {!address && btcWallet.isConnected && (
+                <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 p-4 rounded-xl flex items-center gap-4">
+                    <span className="text-2xl">⚠️</span>
+                    <div>
+                        <p className="font-semibold text-amber-400">EVM Wallet Disconnected</p>
+                        <p className="text-sm text-amber-200/70">Connect your EVM wallet (MetaMask) to view your on-chain vaults and manage loans. GhostYield uses EVM NFTs to represent your Bitcoin collateral.</p>
+                        <div className="mt-2">
+                            <ConnectButton />
+                        </div>
+                    </div>
                 </div>
             )}
 

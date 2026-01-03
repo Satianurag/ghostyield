@@ -70,9 +70,23 @@ function App() {
                         <span className="text-8xl mb-6">👻</span>
                         <h1 className="text-4xl font-bold mb-4">Welcome to GhostYield</h1>
                         <p className="text-gray-400 text-lg mb-8 max-w-md">
-                            Lock your Bitcoin, generate ZK proofs, and borrow stablecoins without bridges.
+                            Connect both your **Bitcoin** and **EVM** wallets to lock BTC, generate ZK proofs, and borrow stablecoins.
                         </p>
-                        <ConnectButton />
+                        <div className="flex flex-col sm:flex-row items-center gap-4">
+                            <div className="flex flex-col gap-2 items-center">
+                                <span className="text-xs text-gray-500 uppercase tracking-widest">Step 1</span>
+                                <div className="scale-110">
+                                    <BitcoinWalletButton />
+                                </div>
+                            </div>
+                            <div className="h-px w-8 bg-white/10 hidden sm:block mt-6" />
+                            <div className="flex flex-col gap-2 items-center">
+                                <span className="text-xs text-gray-500 uppercase tracking-widest">Step 2</span>
+                                <div className="scale-110">
+                                    <ConnectButton />
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 ) : (
                     <Routes>

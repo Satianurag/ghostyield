@@ -8,6 +8,7 @@ import { WagmiProvider, http } from 'wagmi';
 import { baseSepolia } from 'wagmi/chains';
 import App from './App';
 import './index.css';
+import { BitcoinWalletProvider } from './context/BitcoinWalletContext';
 
 const RAINBOW_PROJECT_ID = import.meta.env.VITE_RAINBOW_PROJECT_ID as string;
 const RPC_URL = import.meta.env.VITE_RPC_URL as string;
@@ -28,9 +29,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
         <WagmiProvider config={config}>
             <QueryClientProvider client={queryClient}>
                 <RainbowKitProvider>
-                    <BrowserRouter>
-                        <App />
-                    </BrowserRouter>
+                    <BitcoinWalletProvider>
+                        <BrowserRouter>
+                            <App />
+                        </BrowserRouter>
+                    </BitcoinWalletProvider>
                 </RainbowKitProvider>
             </QueryClientProvider>
         </WagmiProvider>

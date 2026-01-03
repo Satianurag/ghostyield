@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { API_URL, CONTRACTS, GHOST_LENDING_ABI, PRICE_FEED_ABI } from '../config/contracts';
 import { formatUnits } from 'viem';
 import { generateProofLocal, ProofData } from '../lib/zkproof';
@@ -14,6 +15,7 @@ interface CastResult {
 type Step = 'lock' | 'casting' | 'proof' | 'create' | 'done';
 
 export default function CreateVault() {
+    const { isConnected: isEvmConnected } = useAccount();
     // Bitcoin Wallet Integration
     const btcWallet = useBitcoinWallet();
     const [selectedUtxo, setSelectedUtxo] = useState<UTXO | null>(null);
@@ -230,6 +232,19 @@ export default function CreateVault() {
                 <h1 className="text-3xl font-bold mb-2">Create Vault</h1>
                 <p className="text-gray-400">Lock BTC on Bitcoin to use as collateral on Base</p>
             </div>
+
+            {!isEvmConnected && btcWallet.isConnected && (
+                <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 p-4 rounded-xl flex items-center gap-4">
+                    <span className="text-2xl">⚠️</span>
+                    <div>
+                        <p className="font-semibold text-amber-400">EVM Wallet Required</p>
+                        <p className="text-sm text-amber-200/70">You must connect your EVM wallet (MetaMask) to mint the Vault NFT on-chain after locking your BTC.</p>
+                        <div className="mt-2">
+                            <ConnectButton />
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Progress Steps */}
             <div className="flex items-center justify-between">
