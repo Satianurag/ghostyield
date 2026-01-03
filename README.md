@@ -6,7 +6,6 @@
 
 **GhostYield** is a cross-chain DeFi protocol that enables users to lock BTC on Bitcoin and borrow stablecoins on EVM chains, powered by **Charms Protocol** for programmable Bitcoin UTXOs and **Zero-Knowledge Proofs** for privacy.
 
-Built for the **BOS Hackathon 2025**.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Built with Charms](https://img.shields.io/badge/Built%20with-Charms%20SDK-orange)](https://docs.charms.xyz)
@@ -435,9 +434,3 @@ Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTIN
 This project is licensed under the [MIT License](LICENSE).
 
 ---
-
-<div align="center">
-
-Made with 👻 for the **BOS Hackathon 2025**
-
-</div>
