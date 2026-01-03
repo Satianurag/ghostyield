@@ -56,10 +56,11 @@ export async function generateProofLocal(inputs: VaultInputs): Promise<ProofData
     // Prepare circuit inputs
     const txHashChunks = hexTo4Chunks(inputs.btcTxHash);
 
+    const ownerSecret = inputs.ownerSecret.startsWith("0x") ? inputs.ownerSecret : "0x" + inputs.ownerSecret;
     const circuitInputs = {
         btcAmount: inputs.btcAmount,
         btcTxHash: txHashChunks,
-        ownerSecret: BigInt(inputs.ownerSecret).toString(),
+        ownerSecret: BigInt(ownerSecret).toString(),
         lockHeight: inputs.lockHeight.toString(),
     };
 

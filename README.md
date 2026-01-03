@@ -314,56 +314,56 @@ cd ../circuits && npm install
 # Build the Rust vault (requires wasm32-wasip1 target)
 cd ../vault
 rustup target add wasm32-wasip1
+# This generates the .wasm artifact used by Charms CLI
 cargo build --release --target wasm32-wasip1
 ```
 
 ### Environment Setup
 
-Create `.env` files in `contracts/`, `backend/`, and `frontend/` directories:
+The demo is configured for **Base Sepolia** (EVM) and **Bitcoin Testnet4**.
 
-**`contracts/.env`**
+**`backend/.env`** (Use your local Bitcoin node cookie)
 ```env
-PRIVATE_KEY=your_deployer_private_key
-BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
-ETHERSCAN_API_KEY=your_api_key
+PORT=3001
+BITCOIN_RPC="http://__cookie__:your_cookie_token@localhost:48332"
 ```
 
 **`frontend/.env`**
 ```env
-VITE_GHOSTLENDING_ADDRESS=0x...
-VITE_GHOSTPOOL_ADDRESS=0x...
-VITE_GHOSTVAULTNFT_ADDRESS=0x...
-VITE_CHAIN_ID=84532
+VITE_RPC_URL="https://sepolia.base.org"
+VITE_GHOST_LENDING_ADDRESS="0x967EB126FaD16DBDA842F4D33821EC48301A99d7"
+VITE_GHOST_USD_ADDRESS="0x8Fd159A7aBD0A8c819DbC74f22B4840599E7E499"
+VITE_GHOST_POOL_ADDRESS="0xb1d59f399Ac52084270FFf18dD8bD81704699902"
+VITE_VAULT_NFT_ADDRESS="0xbF62e489a1B64BC3471787305dA0dA36CecFf112"
+VITE_API_URL="http://localhost:3001"
+VITE_RAINBOW_PROJECT_ID="your_walletconnect_id"
 ```
 
 ### Running Locally
 
 ```bash
 # Terminal 1: Start the backend
+# Ensure charms CLI is authenticated to your node
 cd backend
 npm run dev    # Runs on http://localhost:3001
 
 # Terminal 2: Start the frontend
 cd frontend
 npm run dev    # Runs on http://localhost:5173
-
-# Terminal 3: (Optional) Run a local Hardhat node
-cd contracts
-npx hardhat node
 ```
 
 ---
 
 ## 📜 Smart Contracts
 
-| Contract             | Address (Base Sepolia)  | Description                            |
-| :------------------- | :---------------------- | :------------------------------------- |
-| `GhostLending`       | `0x...` (TBD)          | Core lending pool & vault management   |
-| `GhostVaultNFT`      | `0x...` (TBD)          | ERC-721 vault position tokens          |
-| `GhostPool`          | `0x...` (TBD)          | USDC liquidity for lenders             |
-| `GhostUSD`           | `0x...` (TBD)          | Borrowed stablecoin                    |
-| `Groth16Verifier`    | `0x...` (TBD)          | On-chain ZK proof verification         |
-| `ChainlinkPriceFeed` | `0x...` (TBD)          | BTC/USD price oracle adapter           |
+| Contract             | Address (Base Sepolia)                       | Description                            |
+| :------------------- | :------------------------------------------- | :------------------------------------- |
+| `GhostLending`       | `0x967EB126FaD16DBDA842F4D33821EC48301A99d7` | Core lending pool & vault management   |
+| `GhostVaultNFT`      | `0xbF62e489a1B64BC3471787305dA0dA36CecFf112` | ERC-721 vault position tokens          |
+| `GhostPool`          | `0xb1d59f399Ac52084270FFf18dD8bD81704699902` | USDC liquidity for lenders             |
+| `GhostUSD`           | `0x8Fd159A7aBD0A8c819DbC74f22B4840599E7E499` | Borrowed stablecoin                    |
+| `Groth16Verifier`    | `0x9Ccc925Bc698531691C8eA79BCADf55565b06Dc8` | On-chain ZK proof verification         |
+| `ChainlinkPriceFeed` | `0xd94e4C1C3bB697AAE92744FAA4E43B5c2Ef11f16` | BTC/USD price oracle adapter           |
 
 ### Deploying Contracts
 

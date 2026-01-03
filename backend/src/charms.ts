@@ -50,9 +50,10 @@ export async function generateVaultProof(params: VaultParams): Promise<CharmProo
 
     // commitment = H(btcTxHash[0], btcTxHash[1], btcTxHash[2], btcTxHash[3], ownerSecret, btcAmount)
     // Note: ownerPubkey is used as ownerSecret in this context
+    const ownerSecret = ownerPubkey.startsWith("0x") ? ownerPubkey : "0x" + ownerPubkey;
     const hashInput = [
         ...txHashChunks,
-        BigInt(ownerPubkey),
+        BigInt(ownerSecret),
         BigInt(btcAmount)
     ];
 
