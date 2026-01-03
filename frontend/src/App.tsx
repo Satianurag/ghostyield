@@ -2,6 +2,7 @@ import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 import BitcoinWalletButton from './components/BitcoinWalletButton';
+import { useBitcoinWallet } from './hooks/useBitcoinWallet';
 import Dashboard from './pages/Dashboard';
 import CreateVault from './pages/CreateVault';
 import Borrow from './pages/Borrow';
@@ -10,7 +11,11 @@ import Lend from './pages/Lend';
 
 function App() {
     const location = useLocation();
-    const { isConnected } = useAccount();
+    const { isConnected: isEvmConnected } = useAccount();
+    const { isConnected: isBtcConnected } = useBitcoinWallet();
+
+    // Allow access to routes if EITHER wallet is connected
+    const isAnyWalletConnected = isEvmConnected || isBtcConnected;
 
     const navItems = [
         { path: '/', label: 'Dashboard', icon: '📊' },
@@ -60,7 +65,7 @@ function App() {
 
             {/* Main Content */}
             <main className="max-w-7xl mx-auto px-4 py-8">
-                {!isConnected ? (
+                {!isAnyWalletConnected ? (
                     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
                         <span className="text-8xl mb-6">👻</span>
                         <h1 className="text-4xl font-bold mb-4">Welcome to GhostYield</h1>
