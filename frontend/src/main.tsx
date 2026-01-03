@@ -4,7 +4,7 @@ import '@rainbow-me/rainbowkit/styles.css';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { WagmiProvider, http } from 'wagmi';
+import { WagmiProvider, http, createStorage } from 'wagmi';
 import { baseSepolia } from 'wagmi/chains';
 import App from './App';
 import './index.css';
@@ -21,6 +21,25 @@ const config = getDefaultConfig({
         [baseSepolia.id]: http(RPC_URL),
     },
 });
+
+// Implementation of "Disconnect on Restart/New Tab, Stay on Refresh"
+const isFreshRestart = !sessionStorage.getItem('ghostyield_session_active');
+
+if (isFreshRestart) {
+    // Fresh session - clear storage to force fresh connections
+    // We clear both ETH and BTC storage
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('wagmi') || key.startsWith('rk-')) {
+            localStorage.removeItem(key);
+        }
+    });
+    // BTC wallet context uses sessionStorage now, which naturally clears on Tab close.
+    // But we clear it here too just in case it was somehow persisted.
+    sessionStorage.removeItem('ghostyield_btc_address');
+    sessionStorage.removeItem('ghostyield_btc_pubkey');
+
+    sessionStorage.setItem('ghostyield_session_active', 'true');
+}
 
 const queryClient = new QueryClient();
 

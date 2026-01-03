@@ -10,6 +10,7 @@ declare global {
             switchNetwork(network: string): Promise<void>;
             getPublicKey(): Promise<string>;
             getBalance(): Promise<{ confirmed: number; unconfirmed: number; total: number }>;
+            signMessage(message: string): Promise<string>;
             signPsbt(psbtHex: string, options?: { autoFinalized?: boolean }): Promise<string>;
             signPsbts(psbtHexs: string[], options?: { autoFinalized?: boolean }): Promise<string[]>;
             pushPsbt(psbtHex: string): Promise<string>;
@@ -45,6 +46,7 @@ export interface BitcoinWalletActions {
     connect: () => Promise<void>;
     disconnect: () => void;
     switchToTestnet4: () => Promise<void>;
+    signMessage: (message: string) => Promise<string>;
     signPsbt: (psbtHex: string) => Promise<string>;
     broadcastPsbt: (psbtHex: string) => Promise<string>;
     refreshBalance: () => Promise<void>;
@@ -99,6 +101,22 @@ export function BitcoinWalletProvider({ children }: { children: ReactNode }) {
         };
     }, []);
 
+    // Load state from sessionStorage on mount
+    useEffect(() => {
+        const savedAddress = sessionStorage.getItem('ghostyield_btc_address');
+        const savedPublicKey = sessionStorage.getItem('ghostyield_btc_pubkey');
+        if (savedAddress && savedPublicKey) {
+            setState(prev => ({
+                ...prev,
+                isConnected: true,
+                address: savedAddress,
+                publicKey: savedPublicKey,
+            }));
+            // Refresh balance and utxos
+            window.unisat?.getBalance().then(bal => setState(p => ({ ...p, balance: bal })));
+        }
+    }, []);
+
     const connect = useCallback(async () => {
         if (!window.unisat) throw new Error('Unisat wallet not installed');
         try {
@@ -107,10 +125,16 @@ export function BitcoinWalletProvider({ children }: { children: ReactNode }) {
             const network = await window.unisat.getNetwork();
             const balance = await window.unisat.getBalance();
 
+            const address = accounts[0] || null;
+            if (address) {
+                sessionStorage.setItem('ghostyield_btc_address', address);
+                sessionStorage.setItem('ghostyield_btc_pubkey', publicKey);
+            }
+
             setState(prev => ({
                 ...prev,
                 isConnected: true,
-                address: accounts[0] || null,
+                address,
                 publicKey,
                 network,
                 balance,
@@ -132,6 +156,8 @@ export function BitcoinWalletProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const disconnect = useCallback(() => {
+        sessionStorage.removeItem('ghostyield_btc_address');
+        sessionStorage.removeItem('ghostyield_btc_pubkey');
         setState(prev => ({
             ...prev,
             isConnected: false,
@@ -174,6 +200,11 @@ export function BitcoinWalletProvider({ children }: { children: ReactNode }) {
         }
     }, [state.address]);
 
+    const signMessage = useCallback(async (message: string): Promise<string> => {
+        if (!window.unisat) throw new Error('Wallet not installed');
+        return window.unisat.signMessage(message);
+    }, []);
+
     const signPsbt = useCallback(async (psbtHex: string): Promise<string> => {
         if (!window.unisat) throw new Error('Wallet not installed');
         return window.unisat.signPsbt(psbtHex, { autoFinalized: true });
@@ -205,6 +236,7 @@ export function BitcoinWalletProvider({ children }: { children: ReactNode }) {
         connect,
         disconnect,
         switchToTestnet4,
+        signMessage,
         signPsbt,
         broadcastPsbt,
         refreshBalance,

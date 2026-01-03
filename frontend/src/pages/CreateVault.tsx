@@ -3,8 +3,9 @@ import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAcc
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { API_URL, CONTRACTS, GHOST_LENDING_ABI, PRICE_FEED_ABI } from '../config/contracts';
 import { formatUnits } from 'viem';
-import { generateProofLocal, ProofData } from '../lib/zkproof';
 import { useBitcoinWallet, UTXO } from '../hooks/useBitcoinWallet';
+import { usePriceFeed } from '../hooks/usePriceFeed';
+import { generateProofLocal, ProofData, deriveSecret } from '../lib/zkproof';
 
 interface CastResult {
     commitTx?: string;
@@ -18,12 +19,14 @@ export default function CreateVault() {
     const { isConnected: isEvmConnected } = useAccount();
     // Bitcoin Wallet Integration
     const btcWallet = useBitcoinWallet();
+    const { price: livePrice } = usePriceFeed();
     const [selectedUtxo, setSelectedUtxo] = useState<UTXO | null>(null);
 
     const [btcAmount, setBtcAmount] = useState('');
     const [lockDuration, setLockDuration] = useState('30');
     const [fundingUtxo, setFundingUtxo] = useState('');
     const [ownerPubkey, setOwnerPubkey] = useState('');
+    const [secret, setSecret] = useState<string | null>(null);
 
     const [castResult, setCastResult] = useState<CastResult | null>(null);
     const [proofData, setProofData] = useState<ProofData | null>(null);
@@ -67,7 +70,10 @@ export default function CreateVault() {
 
     const btcDecimals = priceDecimals || 8;
     const btcPriceRaw = priceData ? (priceData as any)[1] : BigInt(0);
-    const btcPrice = btcPriceRaw ? Number(formatUnits(btcPriceRaw, btcDecimals)) : 0;
+    const chainlinkPrice = btcPriceRaw ? Number(formatUnits(btcPriceRaw, btcDecimals)) : 0;
+
+    // Use live price for display if available, fallback to chainlink
+    const btcPrice = livePrice || chainlinkPrice;
     const estimatedValue = btcAmount ? parseFloat(btcAmount) * btcPrice : 0;
     const maxBorrow = estimatedValue * 0.5; // 50% LTV
 
@@ -92,7 +98,15 @@ export default function CreateVault() {
         try {
             const lockHeight = parseInt(lockDuration) * 144; // ~144 blocks per day
 
-            // 1. Request PSBT from backend
+            // 1. Derive Production-Grade ZK Secret
+            setProofProgress('Step 1/4: Deriving secure secret via wallet signature...');
+            const message = `GhostYield: Derive Secret for Vault\nBTC: ${btcAmount}\nUTXO: ${fundingUtxo}`;
+            const signature = await btcWallet.signMessage(message);
+            const derivedSecret = await deriveSecret(signature);
+            setSecret(derivedSecret);
+
+            // 2. Request PSBT from backend
+            setProofProgress('Step 2/4: Preparing Bitcoin transaction...');
             const response = await fetch(`${API_URL}/api/cast`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -102,10 +116,11 @@ export default function CreateVault() {
                     fundingUtxoValue: selectedUtxo?.value || 0,
                     changeAddress: btcWallet.address,
                     params: {
-                        BTC_AMOUNT: (parseFloat(btcAmount) * 1e8).toString(),
+                        BTC_AMOUNT: Math.round(parseFloat(btcAmount) * 1e8).toString(),
                         LOCK_HEIGHT: lockHeight.toString(),
                         OWNER_PUBKEY: ownerPubkey,
-                        TIMESTAMP: Date.now().toString(),
+                        // Deterministic numeric timestamp from UTXO to prevent "different spell" error and satisfy u64 type.
+                        TIMESTAMP: parseInt(fundingUtxo.split(':')[0].substring(0, 8), 16).toString(),
                     }
                 })
             });
@@ -116,25 +131,126 @@ export default function CreateVault() {
             }
 
             const result = await response.json();
+            console.log('Backend response:', result);
 
+            // Handle two-transaction package format from Charms
+            if (result.needsPackageBroadcast && result.commitTx && result.spellTx) {
+                console.log('Got two-transaction package from Charms');
+                console.log('Commit TX length:', result.commitTx.length);
+                console.log('Spell TX length:', result.spellTx.length);
+
+                // Step 1: Send to backend to convert commit_tx to PSBT
+                setProofProgress('Preparing transaction for signing...');
+
+                const step1Response = await fetch(`${API_URL}/api/broadcast-package`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        commitTx: result.commitTx,
+                        spellTx: result.spellTx
+                    })
+                });
+
+                if (!step1Response.ok) {
+                    const errorData = await step1Response.json();
+                    throw new Error(errorData.error || 'Failed to prepare transaction');
+                }
+
+                const step1Result = await step1Response.json();
+                console.log('Step 1 result:', step1Result);
+
+                // If needs signature, have user sign with wallet
+                if (step1Result.needsSignature && step1Result.commitPsbt) {
+                    console.log('PSBT needs user signature, requesting wallet sign...');
+                    setProofProgress('Please sign the transaction in your Bitcoin wallet...');
+
+                    let signedPsbt;
+                    try {
+                        signedPsbt = await btcWallet.signPsbt(step1Result.commitPsbt);
+                        console.log('User signed PSBT successfully');
+                    } catch (signError) {
+                        console.error('Wallet signing failed:', signError);
+                        throw new Error(`Wallet signing failed: ${signError instanceof Error ? signError.message : 'Unknown error'}`);
+                    }
+
+                    // Step 2: Send signed PSBT back to backend for finalize + broadcast
+                    setProofProgress('Broadcasting signed transaction package...');
+
+                    const step2Response = await fetch(`${API_URL}/api/broadcast-package`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            commitTx: result.commitTx,
+                            spellTx: step1Result.spellTx,
+                            signedCommitPsbt: signedPsbt
+                        })
+                    });
+
+                    if (!step2Response.ok) {
+                        const errorData = await step2Response.json();
+                        throw new Error(errorData.error || 'Broadcast failed');
+                    }
+
+                    const finalResult = await step2Response.json();
+                    console.log('Package broadcast successful! TXID:', finalResult.txid);
+
+                    setCastResult({ executeTx: finalResult.txid });
+                    setStep('casting');
+                    setProofProgress('');
+                    setLoading(false);
+                    return;
+                }
+
+                // Direct broadcast succeeded (txid returned)
+                if (step1Result.txid) {
+                    console.log('Direct broadcast successful! TXID:', step1Result.txid);
+                    setCastResult({ executeTx: step1Result.txid });
+                    setStep('casting');
+                    setProofProgress('');
+                    setLoading(false);
+                    return;
+                }
+
+                throw new Error('Unexpected response from broadcast endpoint');
+            }
+
+            // Fallback for legacy PSBT format
             if (!result.psbt) {
-                throw new Error('Backend did not return a PSBT');
+                throw new Error('Backend did not return a valid transaction format');
             }
 
             // 2. Sign PSBT with wallet
+            console.log('Attempting to sign PSBT, length:', result.psbt.length);
             setProofProgress('Please sign the transaction in your Bitcoin wallet...');
-            const signedPsbt = await btcWallet.signPsbt(result.psbt);
+
+            let signedPsbt;
+            try {
+                signedPsbt = await btcWallet.signPsbt(result.psbt);
+                console.log('Signed PSBT successfully, length:', signedPsbt.length);
+            } catch (signError) {
+                console.error('Sign PSBT failed:', signError);
+                throw new Error(`Signing failed: ${signError instanceof Error ? signError.message : 'Unknown signing error'}`);
+            }
 
             // 3. Broadcast transaction
+            console.log('Attempting to broadcast signed PSBT...');
             setProofProgress('Broadcasting transaction to Bitcoin testnet4...');
-            const txid = await btcWallet.broadcastPsbt(signedPsbt);
+
+            let txid;
+            try {
+                txid = await btcWallet.broadcastPsbt(signedPsbt);
+                console.log('Broadcast successful! TXID:', txid);
+            } catch (broadcastError) {
+                console.error('Broadcast failed:', broadcastError);
+                throw new Error(`Broadcast failed: ${broadcastError instanceof Error ? broadcastError.message : 'Unknown broadcast error'}`);
+            }
 
             setCastResult({ executeTx: txid });
             setStep('casting');
             setProofProgress('');
             setLoading(false);
         } catch (err) {
-            console.error(err);
+            console.error('Full error:', err);
             setError(err instanceof Error ? err.message : 'Failed to process transaction');
             setProofProgress('');
             setLoading(false);
@@ -157,13 +273,13 @@ export default function CreateVault() {
         setProofProgress('Initializing proof generation...');
 
         try {
-            setProofProgress('Loading circuit (this may take a moment)...');
+            setProofProgress('Step 3/4: Generating ZK proof locally...');
 
             // Generate proof locally in the browser using snarkjs
             const proof = await generateProofLocal({
                 btcAmount: (parseFloat(btcAmount) * 1e8).toString(),
                 btcTxHash: castResult.executeTx,
-                ownerSecret: ownerPubkey,
+                ownerSecret: secret || ownerPubkey, // Fallback to pubkey if secret derivation failed
                 lockHeight: parseInt(lockDuration) * 144,
             });
 
@@ -390,17 +506,17 @@ export default function CreateVault() {
 
                     <div>
                         <label className="block text-sm text-gray-400 mb-2">
-                            Owner Pubkey (Optional)
+                            Owner Public Key
                             {btcWallet.isConnected && (
-                                <span className="ml-2 text-green-400 text-xs">✓ From Wallet</span>
+                                <span className="ml-2 text-green-400 text-xs">✓ Auto-filled from Wallet</span>
                             )}
                         </label>
                         <input
                             type="text"
                             value={ownerPubkey}
-                            onChange={(e) => setOwnerPubkey(e.target.value)}
-                            className={`input font-mono text-sm ${btcWallet.isConnected ? 'border-green-500/30 bg-green-500/5' : ''}`}
-                            placeholder="Your Bitcoin public key (33 bytes hex)"
+                            readOnly
+                            className={`input font-mono text-sm cursor-not-allowed opacity-70 ${btcWallet.isConnected ? 'border-green-500/30 bg-green-500/5' : ''}`}
+                            placeholder="Recipient Bitcoin local public key"
                         />
                     </div>
 

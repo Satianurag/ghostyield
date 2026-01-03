@@ -38,28 +38,37 @@ interface VaultParams {
 }
 
 const VAULT_APP_PATH = path.resolve(process.cwd(), "../vault");
+const CHARMS_BIN = process.env.CHARMS_BIN || "/home/sati/.cargo/bin/charms";
+
+/**
+ * Calculates the Vault ID (commitment) using Poseidon hash
+ */
+async function calculateVaultCommitment(btcTxHash: string, ownerPubkey: string, btcAmount: string) {
+    const p = await initPoseidon();
+    const txHashChunks = hexTo4Chunks(btcTxHash);
+    const ownerSecret = ownerPubkey.startsWith("0x") ? ownerPubkey : "0x" + ownerPubkey;
+
+    // Hash input: [txid_chunk0, txid_chunk1, txid_chunk2, txid_chunk3, owner, amount]
+    const hashInput = [
+        ...txHashChunks,
+        BigInt(ownerSecret),
+        BigInt(Math.round(parseFloat(btcAmount)))
+    ];
+
+    const commitment = p(hashInput);
+    const commitmentStr = BigInt(p.F.toString(commitment)).toString(16).padStart(64, '0');
+    return {
+        commitmentStr,
+        vaultId: "0x" + commitmentStr
+    };
+}
 
 /**
  * Generates a ZK proof for a Bitcoin vault using Charms CLI
  */
 export async function generateVaultProof(params: VaultParams): Promise<CharmProof> {
     const { btcAmount, btcTxHash, lockHeight, ownerPubkey } = params;
-
-    const p = await initPoseidon();
-    const txHashChunks = hexTo4Chunks(btcTxHash);
-
-    // commitment = H(btcTxHash[0], btcTxHash[1], btcTxHash[2], btcTxHash[3], ownerSecret, btcAmount)
-    // Note: ownerPubkey is used as ownerSecret in this context
-    const ownerSecret = ownerPubkey.startsWith("0x") ? ownerPubkey : "0x" + ownerPubkey;
-    const hashInput = [
-        ...txHashChunks,
-        BigInt(ownerSecret),
-        BigInt(btcAmount)
-    ];
-
-    const commitment = p(hashInput);
-    const commitmentStr = BigInt(p.F.toString(commitment)).toString(16).padStart(64, '0');
-    const vaultId = "0x" + commitmentStr;
+    const { commitmentStr, vaultId } = await calculateVaultCommitment(btcTxHash, ownerPubkey, btcAmount);
 
 
     // Set environment variables for Charms
@@ -89,9 +98,11 @@ export async function generateVaultProof(params: VaultParams): Promise<CharmProo
 /**
  * Gets the verification key for the Charms app
  */
-export async function getVerificationKey(): Promise<string> {
-    const output = await runCharmsCommand(["app", "vk"], process.env);
-    return output.trim();
+export async function getVerificationKey(binPath?: string): Promise<string> {
+    const args = binPath ? ["app", "vk", binPath] : ["app", "vk"];
+    const output = await runCharmsCommand(args, process.env);
+    const lines = output.trim().split("\n");
+    return lines[lines.length - 1].trim(); // Get the last line (actual hex)
 }
 
 /**
@@ -112,16 +123,46 @@ export async function listVaults(address: string): Promise<string[]> {
 }
 
 /**
- * Fetches transaction hex from public API (mempool.space)
+ * Fetches transaction hex from local node or public API
  */
 async function getTxHex(txid: string): Promise<string> {
+    console.log(`Searching for hex of tx: ${txid}`);
+    // Try local node first
     try {
-        const response = execSync(`curl -s https://mempool.space/testnet4/api/tx/${txid}/hex`).toString().trim();
-        if (response.length < 100) throw new Error("Invalid hex received");
-        return response;
+        const rpcUrl = process.env.BITCOIN_RPC;
+        if (rpcUrl) {
+            const response = await fetch(rpcUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    jsonrpc: "1.0",
+                    id: "gettx",
+                    method: "getrawtransaction",
+                    params: [txid]
+                })
+            });
+            const data: any = await response.json();
+            if (data.result && typeof data.result === "string") {
+                console.log(`Found tx hex in local node`);
+                return data.result;
+            }
+        }
+    } catch (e) {
+        console.warn(`Local node RPC failed for getrawtransaction:`, e);
+    }
+
+    // Fallback to mempool.space
+    try {
+        console.log(`Fetching tx hex from mempool.space...`);
+        const response = await fetch(`https://mempool.space/testnet4/api/tx/${txid}/hex`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const hex = await response.text();
+        if (hex.length < 100) throw new Error("Invalid hex response");
+        console.log(`Found tx hex on mempool.space`);
+        return hex;
     } catch (error) {
         console.error(`Failed to fetch tx hex for ${txid}:`, error);
-        throw new Error(`Could not find transaction ${txid} on testnet4. Make sure it's confirmed.`);
+        throw new Error(`Could not find transaction ${txid} on testnet4. Make sure it's confirmed or in mempool.`);
     }
 }
 
@@ -135,49 +176,129 @@ export async function createVaultPsbt(
     changeAddress: string,
     env: Record<string, string>
 ): Promise<{ psbt: string }> {
-    const appBins = await runCharmsCommand(["app", "build"], env);
-    const txid = fundingUtxo.split(":")[0];
-    const prevTxHex = await getTxHex(txid);
+    console.log(`Starting PSBT generation for UTXO: ${fundingUtxo}`);
 
-    const fullEnv = {
+    const txid = fundingUtxo.split(":")[0];
+
+    // Calculate commitment and vault IDs first so they are available for app build
+    const { commitmentStr } = await calculateVaultCommitment(
+        txid,
+        env.OWNER_PUBKEY,
+        env.BTC_AMOUNT
+    );
+
+    const fullEnv: Record<string, string | undefined> = {
         ...process.env,
         ...env,
-        APP_BINS: appBins.trim(),
+        APP_ID: commitmentStr,
+        APP_VK: await getVerificationKey(),
+        IN_UTXO_0: fundingUtxo,
+        ADDR_0: changeAddress,
+        TIMESTAMP: env.TIMESTAMP || "1736000000",
+        LOCK_HEIGHT: env.LOCK_HEIGHT || "100",
     };
 
-    const spellPath = path.join(VAULT_APP_PATH, "spells", spellName);
+    console.log(`Step 1: Building app binaries (wasm32-wasip1) with APP_ID: ${commitmentStr}...`);
+    // Use charms app build which produces the correct WASI binary with _start export
+    const appBins = await runCharmsCommand(["app", "build"], fullEnv);
+    console.log(`Step 1 Complete. Bins: ${appBins.trim().slice(0, 60)}...`);
+
+    // Update VK based on the specific binary
+    fullEnv.APP_VK = await getVerificationKey(appBins.trim());
+    fullEnv.APP_BINS = appBins.trim();
+
+    console.log(`Step 2: Fetching previous transaction hex for ${txid}...`);
+    const prevTxHex = await getTxHex(txid);
+    console.log(`Step 2 Complete. Hex length: ${prevTxHex.length}`);
+
+    // Update fullEnv with app bins
+    fullEnv.APP_BINS = appBins.trim();
+
+    // Manually substitute variables in the YAML file since charms CLI doesn't do it
+    const spellTemplatePath = path.join(VAULT_APP_PATH, "spells", spellName);
+    let spellContent = fs.readFileSync(spellTemplatePath, "utf-8");
+
+    // Replace all usage of ${VAR} with value from fullEnv
+    Object.entries(fullEnv).forEach(([key, value]) => {
+        if (value) {
+            spellContent = spellContent.replace(new RegExp(`\\$\\{${key}\\}`, 'g'), value);
+        }
+    });
+
+    const tempSpellPath = path.join(VAULT_APP_PATH, "spells", `temp_${Date.now()}_${spellName}`);
+    fs.writeFileSync(tempSpellPath, spellContent);
 
     // Use charms spell prove to generate the transaction
+    // --mock flag bypasses real prover API - useful for testing without burning UTXOs
+    const useMock = process.env.CHARMS_MOCK_MODE === 'true';
     const args = [
         "spell", "prove",
-        "--spell", spellPath,
+        "--spell", tempSpellPath,
         "--funding-utxo", fundingUtxo,
         "--funding-utxo-value", fundingUtxoValue.toString(),
+        "--app-bins", appBins.trim(),
         "--change-address", changeAddress,
         "--prev-txs", prevTxHex,
-        "--chain", "bitcoin"
+        "--chain", "bitcoin",
+        ...(useMock ? ["--mock"] : [])
     ];
 
     // Note: We expect the output to contain the transaction hex or PSBT
     // Currently charms spell prove prints the transaction package
-    const output = await runCharmsCommand(args, fullEnv);
+    console.log(`Step 3: Running spell prove with args: ${args.join(' ')}`);
+    try {
+        const output = await runCharmsCommand(args, fullEnv);
+        console.log(`Step 3 Complete. Output length: ${output.length}`);
+        console.log(`Step 3 Raw Output (first 500 chars):\n${output.substring(0, 500)}`);
+        console.log(`Step 3 Raw Output (last 500 chars):\n${output.substring(output.length - 500)}`);
 
-    // Parse the transaction from output. Using regex to find hex string
-    // Standard charms output for prove usually has the tx hex at the end or in a JSON block
-    const txMatch = output.match(/[0-9a-fA-F]{200,}/); // Look for long hex string
-    if (!txMatch) {
-        // Fallback for different output formats
-        const jsonMatch = output.match(/\{.*\}/s);
-        if (jsonMatch) {
-            try {
-                const data = JSON.parse(jsonMatch[0]);
-                if (data.tx) return { psbt: data.tx };
-            } catch (e) { }
+        // Clean up temp file
+        if (fs.existsSync(tempSpellPath)) {
+            fs.unlinkSync(tempSpellPath);
         }
-        throw new Error(`Failed to parse PSBT from charms output: ${output}`);
-    }
 
-    return { psbt: txMatch[0] };
+        // Try to parse as JSON array first (new format: [{bitcoin: hex}, {bitcoin: hex}])
+        try {
+            const parsed = JSON.parse(output.trim());
+            if (Array.isArray(parsed) && parsed.length === 2) {
+                console.log('Parsed as JSON array with 2 transactions');
+                // Extract the bitcoin hex from each transaction object
+                const commitTx = parsed[0].bitcoin || parsed[0];
+                const spellTx = parsed[1].bitcoin || parsed[1];
+                console.log('Commit TX length:', commitTx.length);
+                console.log('Spell TX length:', spellTx.length);
+                return {
+                    commitTx: commitTx,  // First transaction (needs signing)
+                    spellTx: spellTx,    // Second transaction (spell, partially signed by prover)
+                    needsPackageBroadcast: true
+                };
+            }
+        } catch (e) {
+            console.log('Not JSON array format, trying regex...');
+        }
+
+        // Parse the transaction from output. Using regex to find hex string
+        // Standard charms output for prove usually has the tx hex at the end or in a JSON block
+        const txMatch = output.match(/[0-9a-fA-F]{200,}/); // Look for long hex string
+        if (!txMatch) {
+            // Fallback for different output formats
+            const jsonMatch = output.match(/\{.*\}/s);
+            if (jsonMatch) {
+                try {
+                    const data = JSON.parse(jsonMatch[0]);
+                    if (data.tx) return { psbt: data.tx };
+                } catch (e) { }
+            }
+            throw new Error(`Failed to parse PSBT from charms output: ${output}`);
+        }
+
+        return { psbt: txMatch[0] };
+    } catch (error) {
+        if (fs.existsSync(tempSpellPath)) {
+            fs.unlinkSync(tempSpellPath);
+        }
+        throw error;
+    }
 }
 
 /**
@@ -213,14 +334,49 @@ export async function castSpell(
 
 // Helper functions
 
+async function runCargoCommand(
+    args: string[],
+    env: NodeJS.ProcessEnv | Record<string, string | undefined>
+): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const fullEnv = {
+            ...env,
+            PATH: `${env.PATH}:/home/sati/.cargo/bin:/usr/local/bin:/usr/bin:/bin`
+        };
+
+        const proc = spawn("cargo", args, {
+            cwd: VAULT_APP_PATH,
+            env: fullEnv as NodeJS.ProcessEnv,
+        });
+
+        let stdout = "";
+        let stderr = "";
+
+        proc.stdout.on("data", (data) => stdout += data.toString());
+        proc.stderr.on("data", (data) => stderr += data.toString());
+
+        proc.on("error", (err) => reject(new Error(`Failed to execute Cargo: ${err.message}`)));
+
+        proc.on("close", (code) => {
+            if (code === 0) resolve(stdout);
+            else reject(new Error(`Cargo command failed with code ${code}: ${stderr}`));
+        });
+    });
+}
+
 async function runCharmsCommand(
     args: string[],
     env: NodeJS.ProcessEnv | Record<string, string | undefined>
 ): Promise<string> {
     return new Promise((resolve, reject) => {
-        const proc = spawn("charms", args, {
+        const fullEnv = {
+            ...env,
+            PATH: `${env.PATH}:${path.dirname(CHARMS_BIN)}:/usr/local/bin:/usr/bin:/bin`
+        };
+
+        const proc = spawn(CHARMS_BIN, args, {
             cwd: VAULT_APP_PATH,
-            env: env as NodeJS.ProcessEnv,
+            env: fullEnv as NodeJS.ProcessEnv,
         });
 
         let stdout = "";

@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { CONTRACTS, GHOST_LENDING_ABI, PRICE_FEED_ABI, API_URL } from '../config/contracts';
 import { formatUnits } from 'viem';
 import { useBitcoinWallet } from '../hooks/useBitcoinWallet';
+import { usePriceFeed } from '../hooks/usePriceFeed';
 import { useState } from 'react';
 
 export default function Dashboard() {
@@ -57,9 +58,13 @@ export default function Dashboard() {
 
     // --- Process Data ---
 
-    const btcPriceRaw = priceData ? priceData[1] : BigInt(0);
     const btcDecimals = priceDecimals || 8;
-    const btcPrice = Number(formatUnits(btcPriceRaw, btcDecimals));
+    const btcPriceRaw = priceData ? (priceData as any)[1] : BigInt(0);
+    const chainlinkPrice = btcPriceRaw ? Number(formatUnits(btcPriceRaw, btcDecimals)) : 0;
+    const { price: livePrice } = usePriceFeed();
+
+    // Use live price for display if available
+    const btcPrice = livePrice || chainlinkPrice;
 
     let totalCollateralBTC = 0;
     let totalDebtGUSD = 0;
@@ -243,9 +248,27 @@ export default function Dashboard() {
                 </div>
 
                 <div className="card">
-                    <p className="text-gray-400 text-sm mb-1">BTC Price</p>
-                    <p className="text-2xl font-bold">{stats.btcPrice}</p>
-                    <p className="text-gray-500 text-sm">via Chainlink</p>
+                    <div className="flex items-center justify-between mb-2">
+                        <span className="text-gray-400 text-sm">Bitcoin Price</span>
+                        {livePrice ? (
+                            <span className="flex items-center gap-1.5 px-1.5 py-0.5 rounded-full bg-green-500/10 text-[10px] font-bold text-green-400 uppercase tracking-wider animate-pulse border border-green-500/20">
+                                <span className="w-1 h-1 rounded-full bg-green-500" />
+                                Live
+                            </span>
+                        ) : (
+                            <span className="px-1.5 py-0.5 rounded-full bg-blue-500/10 text-[10px] font-bold text-blue-400 uppercase tracking-wider border border-blue-500/20">
+                                Oracle
+                            </span>
+                        )}
+                    </div>
+                    <div className="text-2xl font-bold flex items-baseline gap-2">
+                        ${btcPrice.toLocaleString()}
+                    </div>
+                    {livePrice && (
+                        <div className="text-[10px] text-gray-500 mt-1">
+                            Oracle: ${chainlinkPrice.toLocaleString()}
+                        </div>
+                    )}
                 </div>
             </div>
 
