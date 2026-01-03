@@ -1,0 +1,39 @@
+# GhostYield Vault Borrow Status Transition Spell
+# Transitions vault from "active" to "borrowed" when debt is taken
+
+version: 1
+app:
+  id: ${APP_ID}
+  vk: ${APP_VK}
+
+inputs:
+  - utxo: ${VAULT_UTXO}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "active"
+
+outputs:
+  - address: ${VAULT_ADDR}
+    value: ${BTC_AMOUNT}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "borrowed"
+            debt_amount: ${DEBT_AMOUNT}
+            borrowed_at: ${TIMESTAMP}
+            lending_contract: ${LENDING_CONTRACT}
+
+# Constraints enforced by app_contract:
+# 1. Caller must be vault owner OR authorized lending contract
+# 2. Vault must be in "active" state
+# 3. BTC amount and lock height cannot change
+# 4. Debt amount must be positive

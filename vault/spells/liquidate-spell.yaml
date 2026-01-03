@@ -1,0 +1,40 @@
+# GhostYield Vault Liquidation Spell
+# Transitions vault from "borrowed" to "liquidated" when health factor breaches threshold
+
+version: 1
+app:
+  id: ${APP_ID}
+  vk: ${APP_VK}
+
+inputs:
+  - utxo: ${VAULT_UTXO}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "borrowed"
+            debt_amount: ${DEBT_AMOUNT}
+
+outputs:
+  - address: ${LIQUIDATOR_ADDR}
+    value: ${BTC_AMOUNT}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "liquidated"
+            liquidated_at: ${TIMESTAMP}
+            liquidator: ${LIQUIDATOR_PUBKEY}
+            debt_at_liquidation: ${DEBT_AMOUNT}
+
+# Constraints enforced by app_contract:
+# 1. Health factor < 100 (below liquidation threshold)
+# 2. Vault must be in "borrowed" state
+# 3. Liquidator must cover debt + penalty
+# 4. Collateral transferred to liquidator

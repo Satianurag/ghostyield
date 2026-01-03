@@ -1,0 +1,38 @@
+# GhostYield Vault Repay Spell
+# Transitions vault from "borrowed" back to "active" when debt is fully repaid
+
+version: 1
+app:
+  id: ${APP_ID}
+  vk: ${APP_VK}
+
+inputs:
+  - utxo: ${VAULT_UTXO}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "borrowed"
+            debt_amount: ${DEBT_AMOUNT}
+
+outputs:
+  - address: ${VAULT_ADDR}
+    value: ${BTC_AMOUNT}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "active"
+            repaid_at: ${TIMESTAMP}
+
+# Constraints enforced by app_contract:
+# 1. Debt must be fully repaid (verified off-chain before spell execution)
+# 2. Vault must be in "borrowed" state
+# 3. BTC amount and lock height cannot change
+# 4. Only vault owner or lending contract can execute

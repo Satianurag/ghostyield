@@ -1,0 +1,23 @@
+# GhostYield Vault Creation Spell
+# Creates a time-locked BTC vault with programmable conditions
+# Charms v0.9.1 format
+
+version: 8
+apps:
+  ${APP_ID}: "n/${APP_ID}/${APP_VK}"
+
+ins:
+  - utxo_id: ${IN_UTXO_0}
+    charms: {}
+
+outs:
+  - address: ${ADDR_0}
+    value: ${BTC_AMOUNT}
+    charms:
+      ${APP_ID}:
+        vault:
+          owner: ${OWNER_PUBKEY}
+          amount: ${BTC_AMOUNT}
+          lock_until: ${LOCK_HEIGHT}
+          status: "active"
+          created_at: ${TIMESTAMP}

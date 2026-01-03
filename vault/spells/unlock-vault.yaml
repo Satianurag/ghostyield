@@ -1,0 +1,36 @@
+# GhostYield Vault Unlock Spell
+# Unlocks a vault after lock period expires or debt is repaid
+
+version: 1
+app:
+  id: ${APP_ID}
+  vk: ${APP_VK}
+
+inputs:
+  - utxo: ${VAULT_UTXO}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "active"
+
+outputs:
+  - address: ${UNLOCK_ADDR}
+    value: ${BTC_AMOUNT}
+    charms:
+      - app: ${APP_ID}
+        charm:
+          vault:
+            owner: ${OWNER_PUBKEY}
+            amount: ${BTC_AMOUNT}
+            lock_until: ${LOCK_HEIGHT}
+            status: "unlocked"
+            unlocked_at: ${TIMESTAMP}
+
+# Constraints checked by the spell:
+# 1. Current block height >= lock_until
+# 2. Caller is owner OR debt is fully repaid
+# 3. Valid signature from owner

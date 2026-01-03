@@ -1,0 +1,20 @@
+{
+    "name": "ghostyield-contracts",
+    "version": "1.0.0",
+    "scripts": {
+        "compile": "hardhat compile",
+        "deploy": "hardhat run scripts/deploy.ts --network base-sepolia",
+        "deploy:local": "hardhat run scripts/deploy.ts --network localhost",
+        "test": "hardhat test",
+        "clean": "hardhat clean"
+    },
+    "devDependencies": {
+        "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+        "dotenv": "^16.3.1",
+        "hardhat": "^2.28.2"
+    },
+    "dependencies": {
+        "@chainlink/contracts": "^0.8.0",
+        "@openzeppelin/contracts": "^5.0.0"
+    }
+}
