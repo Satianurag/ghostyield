@@ -75,3 +75,8 @@ coverage/
 *.temp
 .cache/
 .env
+
+# Unnecessary files
+*.har
+*.pid
+temp_app/

@@ -11,7 +11,7 @@
 [![Built with Charms](https://img.shields.io/badge/Built%20with-Charms%20SDK-orange)](https://docs.charms.xyz)
 [![React](https://img.shields.io/badge/React-18.2-61DAFB?logo=react)](https://react.dev)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.20-363636?logo=solidity)](https://soliditylang.org)
-[![Rust](https://img.shields.io/badge/Rust-1.75-DEA584?logo=rust)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/Rust-2021_Edition-DEA584?logo=rust)](https://www.rust-lang.org)
 
 </div>
 
@@ -80,10 +80,10 @@ There's no native, trustless way to use your BTC as collateral without giving up
 | Layer              | Technology                                                                    |
 | :----------------- | :---------------------------------------------------------------------------- |
 | **Bitcoin**        | [Charms Protocol](https://charms.xyz) (v0.10.0 SDK), Spells (YAML)         |
-| **ZK Proofs**      | [Circom](https://docs.circom.io) + [SnarkJS](https://github.com/iden3/snarkjs) (Groth16) |
+| **ZK Proofs**      | [Circom](https://docs.circom.io) (v2.1.8) + [SnarkJS](https://github.com/iden3/snarkjs) (v0.7.5 Groth16) |
 | **Smart Contracts**| Solidity 0.8.20, OpenZeppelin, Hardhat                                       |
 | **EVM Network**    | Base Sepolia Testnet                                                          |
-| **Backend**        | Node.js (Express), TypeScript, `circomlibjs` (Poseidon hash)                  |
+| **Backend**        | Node.js (Express), TypeScript, `circomlibjs` (Poseidon hash for vault IDs)   |
 | **Frontend**       | React 18, Vite, TailwindCSS, RainbowKit, wagmi/viem                           |
 | **Oracle**         | Chainlink BTC/USD Price Feed                                                  |
 
@@ -97,11 +97,11 @@ The system consists of four main components that interact across two blockchains
 flowchart TB
     subgraph "User Interface"
         UI["⚛️ React Frontend"]
+        ZK["🔐 SnarkJS Prover (Browser)"]
     end
 
     subgraph "Backend Service"
         BE["🖥️ Express Backend"]
-        ZK["🔐 SnarkJS Prover"]
     end
 
     subgraph "Bitcoin Network"
@@ -120,10 +120,10 @@ flowchart TB
         ORACLE["📡 Chainlink Oracle"]
     end
 
+    UI <--> ZK
     UI <---> BE
     UI <--"wagmi/viem"--> LENDING
     UI <--"wagmi/viem"--> POOL
-    BE <--> ZK
     BE <--"charms CLI"--> CHARMS
     CHARMS --> BTC
     CHARMS --> VAULT_LOGIC
@@ -261,7 +261,7 @@ ghostyield/
 │   │   ├── GhostUSD.sol        # gUSD stablecoin
 │   │   ├── Groth16Verifier.sol # ZK proof verifier
 │   │   └── ChainlinkPriceFeed.sol
-│   ├── deploy/          # Deployment scripts
+│   ├── scripts/         # Deployment & utility scripts
 │   └── hardhat.config.ts
 │
 ├── frontend/            # React + Vite frontend
@@ -273,7 +273,7 @@ ghostyield/
 │
 ├── vault/               # Charms Protocol Integration (Rust)
 │   ├── src/
-│   │   └── lib.rs       # Vault state machine (Charms SDK)
+│   │   └── main.rs      # Vault state machine (Charms SDK)
 │   ├── spells/          # Charms spell definitions (YAML)
 │   │   ├── create-vault.yaml
 │   │   ├── borrow-spell.yaml
@@ -282,9 +282,13 @@ ghostyield/
 │   │   └── liquidate-spell.yaml
 │   └── Cargo.toml
 │
-└── circuits/            # Circom ZK circuits
-    ├── vault.circom     # Poseidon commitment circuit
-    └── build/           # Compiled keys & verifier
+├── circuits/            # Circom ZK circuits
+│   └── vault.circom     # Poseidon commitment circuit
+│
+└── frontend/public/circuits/  # Compiled ZK artifacts
+    ├── vault.wasm            # Circuit WASM for browser
+    ├── vault_final.zkey      # Proving key
+    └── verification_key.json # Verification key
 ```
 
 ---
@@ -312,6 +316,8 @@ cd ../frontend && npm install
 cd ../circuits && npm install
 
 # Build the Rust vault (requires wasm32-wasip1 target)
+# Note: The backend will attempt to build this automatically if `cargo` is available, 
+# but manual build is recommended to ensure the environment is correct.
 cd ../vault
 rustup target add wasm32-wasip1
 # This generates the .wasm artifact used by Charms CLI
@@ -331,10 +337,13 @@ BITCOIN_RPC="http://__cookie__:your_cookie_token@localhost:48332"
 **`frontend/.env`**
 ```env
 VITE_RPC_URL="https://sepolia.base.org"
-VITE_GHOST_LENDING_ADDRESS="0x967EB126FaD16DBDA842F4D33821EC48301A99d7"
-VITE_GHOST_USD_ADDRESS="0x8Fd159A7aBD0A8c819DbC74f22B4840599E7E499"
-VITE_GHOST_POOL_ADDRESS="0xb1d59f399Ac52084270FFf18dD8bD81704699902"
-VITE_VAULT_NFT_ADDRESS="0xbF62e489a1B64BC3471787305dA0dA36CecFf112"
+VITE_GHOST_LENDING_ADDRESS="0x5233E2cC449738087DB0ffdf8b71DcDbFFEc1329"
+VITE_GHOST_USD_ADDRESS="0xe0A9306aec330f8dE987CeDad6D5093699ae27Fa"
+VITE_GHOST_POOL_ADDRESS="0xcB1b77F9f779488Eadf2955ED44cdAB86a35ED75"
+VITE_VAULT_NFT_ADDRESS="0xb4A0b184FcC7c7cB1BC83091e50Fed7000694e9A"
+VITE_VERIFIER_ADDRESS="0x40eA104388c14e2037C7F79aFA88970Dc70e732E"
+VITE_PRICE_FEED_ADDRESS="0xd94e4C1C3bB697AAE92744FAA4E43B5c2Ef11f16"
+VITE_USDC_ADDRESS="0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 VITE_API_URL="http://localhost:3001"
 VITE_RAINBOW_PROJECT_ID="your_walletconnect_id"
 ```
@@ -358,19 +367,21 @@ npm run dev    # Runs on http://localhost:5173
 
 | Contract             | Address (Base Sepolia)                       | Description                            |
 | :------------------- | :------------------------------------------- | :------------------------------------- |
-| `GhostLending`       | `0x967EB126FaD16DBDA842F4D33821EC48301A99d7` | Core lending pool & vault management   |
-| `GhostVaultNFT`      | `0xbF62e489a1B64BC3471787305dA0dA36CecFf112` | ERC-721 vault position tokens          |
-| `GhostPool`          | `0xb1d59f399Ac52084270FFf18dD8bD81704699902` | USDC liquidity for lenders             |
-| `GhostUSD`           | `0x8Fd159A7aBD0A8c819DbC74f22B4840599E7E499` | Borrowed stablecoin                    |
-| `Groth16Verifier`    | `0x9Ccc925Bc698531691C8eA79BCADf55565b06Dc8` | On-chain ZK proof verification         |
+| `GhostLending`       | `0x5233E2cC449738087DB0ffdf8b71DcDbFFEc1329` | Core lending pool & vault management   |
+| `GhostVaultNFT`      | `0xb4A0b184FcC7c7cB1BC83091e50Fed7000694e9A` | ERC-721 vault position tokens          |
+| `GhostPool`          | `0xcB1b77F9f779488Eadf2955ED44cdAB86a35ED75` | USDC liquidity for lenders             |
+| `GhostUSD`           | `0xe0A9306aec330f8dE987CeDad6D5093699ae27Fa` | Borrowed stablecoin                    |
+| `Groth16Verifier`    | `0x40eA104388c14e2037C7F79aFA88970Dc70e732E` | On-chain ZK proof verification         |
 | `ChainlinkPriceFeed` | `0xd94e4C1C3bB697AAE92744FAA4E43B5c2Ef11f16` | BTC/USD price oracle adapter           |
+
+> **Note:** The addresses above are from a previous deployment. You MUST deploy your own contracts and update them in `frontend/.env` and `frontend/src/config/contracts.ts`.
 
 ### Deploying Contracts
 
 ```bash
 cd contracts
 npx hardhat compile
-npx hardhat deploy --network baseSepolia
+npx hardhat run scripts/deploy.ts --network base-sepolia
 ```
 
 ---
@@ -379,13 +390,13 @@ npx hardhat deploy --network baseSepolia
 
 GhostYield uses the **Charms SDK** (`v0.10.0`) to define programmable vault logic on Bitcoin.
 
-### Vault State Machine (`vault/src/lib.rs`)
+### Vault State Machine (`vault/src/main.rs`)
 
 The Rust module defines valid state transitions:
 
 | Transition                       | Condition                           |
 | :------------------------------- | :---------------------------------- |
-| `None` → `Active`               | Vault created with BTC locked       |
+| `(empty)` → `Active`            | Vault created with BTC locked       |
 | `Active` → `Borrowed`           | Debt taken against collateral       |
 | `Borrowed` → `Active`           | Debt fully repaid                  |
 | `Active` → `Unlocked`           | Lock period expired, BTC claimable  |
