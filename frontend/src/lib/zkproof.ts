@@ -84,17 +84,18 @@ export async function generateProofLocal(inputs: VaultInputs): Promise<ProofData
             CIRCUIT_ZKEY
         );
 
-        // Format proof for Solidity verifier
-        // snarkjs returns proof in a different format than what Solidity expects
+        // Format proof for Solidity verifier using exportSolidityCallData to ensure correctness
+        const callData = await snarkjs.groth16.exportSolidityCallData(proof, publicSignals);
+
+        // Parse the callData string (it returns comma-separated JSON arrays)
+        const parsed = JSON.parse(`[${callData}]`);
+
         const proofData: ProofData = {
-            a: [proof.pi_a[0], proof.pi_a[1]],
-            b: [
-                [proof.pi_b[0][1], proof.pi_b[0][0]], // Note: reversed for Solidity
-                [proof.pi_b[1][1], proof.pi_b[1][0]]
-            ],
-            c: [proof.pi_c[0], proof.pi_c[1]],
-            input: [publicSignals[0], publicSignals[1]], // [vaultCommitment, btcAmount]
-            vaultId: '0x' + BigInt(publicSignals[0]).toString(16).padStart(64, '0'),
+            a: parsed[0],
+            b: parsed[1],
+            c: parsed[2],
+            input: parsed[3], // [vaultCommitment, btcAmount]
+            vaultId: '0x' + BigInt(parsed[3][0]).toString(16).padStart(64, '0'),
         };
 
         return proofData;

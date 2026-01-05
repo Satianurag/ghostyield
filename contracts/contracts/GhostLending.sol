@@ -9,11 +9,11 @@ import "./GhostUSD.sol";
 
 interface IGroth16Verifier {
     function verify(
-        uint256[2] memory a,
-        uint256[2][2] memory b,
-        uint256[2] memory c,
-        uint256[2] memory input
-    ) external returns (bool);
+        uint256[2] calldata a,
+        uint256[2][2] calldata b,
+        uint256[2] calldata c,
+        uint256[2] calldata input
+    ) external view returns (bool);
 }
 
 interface IGhostPool {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount } from 'wagmi';
+import { useReadContract, useWriteContract, useWaitForTransactionReceipt, useAccount, useChainId, useSwitchChain } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { API_URL, CONTRACTS, GHOST_LENDING_ABI, PRICE_FEED_ABI } from '../config/contracts';
 import { formatUnits } from 'viem';
@@ -277,7 +277,7 @@ export default function CreateVault() {
 
             // Generate proof locally in the browser using snarkjs
             const proof = await generateProofLocal({
-                btcAmount: (parseFloat(btcAmount) * 1e8).toString(),
+                btcAmount: Math.round(parseFloat(btcAmount) * 1e8).toString(),
                 btcTxHash: castResult.executeTx,
                 ownerSecret: secret || ownerPubkey, // Fallback to pubkey if secret derivation failed
                 lockHeight: parseInt(lockDuration) * 144,
@@ -299,6 +299,9 @@ export default function CreateVault() {
         hash,
     });
 
+    const chainId = useChainId();
+    const { switchChainAsync } = useSwitchChain();
+
     // Step 3: Create vault on Base using the proof
     const handleCreateVault = async () => {
         if (!proofData) {
@@ -308,6 +311,24 @@ export default function CreateVault() {
 
         setLoading(true);
         setError(null);
+
+        // Ensure we are on the correct chain (Base Sepolia)
+        // This avoids internal "getChainId" calls that might fail in some connector versions
+        if (chainId !== 84532) {
+            try {
+                console.log('Switching chain to 84532...');
+                await switchChainAsync({ chainId: 84532 });
+                // We return here because the chain switch might cause a re-render/re-connection
+                // Users will click "Create Vault" again once on the right chain
+                setLoading(false);
+                return;
+            } catch (switchError) {
+                console.error('Failed to switch chain:', switchError);
+                setError('Please switch your wallet to Base Sepolia testnet');
+                setLoading(false);
+                return;
+            }
+        }
 
         try {
             writeContract({
@@ -324,6 +345,7 @@ export default function CreateVault() {
                     [BigInt(proofData.input[0]), BigInt(proofData.input[1])],
                     proofData.vaultId as `0x${string}`
                 ],
+                chainId: 84532,
             });
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Failed to create vault');

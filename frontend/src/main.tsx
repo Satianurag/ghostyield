@@ -13,6 +13,39 @@ import { BitcoinWalletProvider } from './context/BitcoinWalletContext';
 const RAINBOW_PROJECT_ID = import.meta.env.VITE_RAINBOW_PROJECT_ID as string;
 const RPC_URL = import.meta.env.VITE_RPC_URL as string;
 
+// CRITICAL FIX: Clear ALL stale wagmi/rainbowkit state BEFORE config init
+// This prevents "connector.getChainId is not a function" errors from zombie connections
+const clearWagmiState = () => {
+    try {
+        // Clear from localStorage
+        const localStorageKeys = Object.keys(localStorage);
+        localStorageKeys.forEach(key => {
+            if (key.startsWith('wagmi') || key.startsWith('rk-') || key.startsWith('walletconnect')) {
+                localStorage.removeItem(key);
+            }
+        });
+        // Clear from sessionStorage 
+        const sessionStorageKeys = Object.keys(sessionStorage);
+        sessionStorageKeys.forEach(key => {
+            if (key.startsWith('wagmi') || key.startsWith('rk-') || key.startsWith('walletconnect')) {
+                sessionStorage.removeItem(key);
+            }
+        });
+    } catch (e) {
+        console.warn('Failed to clear wagmi state:', e);
+    }
+};
+
+// Clear state immediately on module load (before wagmi initializes)
+clearWagmiState();
+
+// Noop storage to completely disable persistence and prevent stale state issues
+const noopStorage = {
+    getItem: () => null,
+    setItem: () => { },
+    removeItem: () => { },
+};
+
 const config = getDefaultConfig({
     appName: 'GhostYield',
     projectId: RAINBOW_PROJECT_ID,
@@ -20,26 +53,13 @@ const config = getDefaultConfig({
     transports: {
         [baseSepolia.id]: http(RPC_URL),
     },
+    // FIX: Use noopStorage to completely prevent state persistence
+    // This ensures each page load starts with a fresh connection state
+    // preventing "connector.getChainId is not a function" zombie connector errors
+    storage: createStorage({
+        storage: noopStorage as any,
+    }),
 });
-
-// Implementation of "Disconnect on Restart/New Tab, Stay on Refresh"
-const isFreshRestart = !sessionStorage.getItem('ghostyield_session_active');
-
-if (isFreshRestart) {
-    // Fresh session - clear storage to force fresh connections
-    // We clear both ETH and BTC storage
-    Object.keys(localStorage).forEach(key => {
-        if (key.startsWith('wagmi') || key.startsWith('rk-')) {
-            localStorage.removeItem(key);
-        }
-    });
-    // BTC wallet context uses sessionStorage now, which naturally clears on Tab close.
-    // But we clear it here too just in case it was somehow persisted.
-    sessionStorage.removeItem('ghostyield_btc_address');
-    sessionStorage.removeItem('ghostyield_btc_pubkey');
-
-    sessionStorage.setItem('ghostyield_session_active', 'true');
-}
 
 const queryClient = new QueryClient();
 
