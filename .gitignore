@@ -33,11 +33,11 @@ vault/Cargo.lock
 **/*.rs.bk
 
 # Environment variables
-.env
-.env.local
-.env.*.local
-.env.production
-.env.development
+#.env
+#.env.local
+#.env.*.local
+#.env.production
+#.env.development
 
 # IDE
 .vscode/
@@ -74,7 +74,7 @@ coverage/
 *.tmp
 *.temp
 .cache/
-.env
+#.env
 
 # Unnecessary files
 *.har
