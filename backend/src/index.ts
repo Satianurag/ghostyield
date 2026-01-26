@@ -11,17 +11,24 @@ async function bitcoinRpc(method: string, params: unknown[] = []): Promise<unkno
     const rpcUrl = process.env.BITCOIN_RPC;
     if (!rpcUrl) throw new Error('BITCOIN_RPC not configured');
 
-    // Parse credentials from URL (format: http://user:pass@host:port)
-    const urlObj = new URL(rpcUrl);
-    const auth = Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
-    const cleanUrl = `${urlObj.protocol}//${urlObj.host}`;
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json'
+    };
 
-    const response = await fetch(cleanUrl, {
+    // If URL contains credentials, use Basic Auth
+    try {
+        const urlObj = new URL(rpcUrl);
+        if (urlObj.username && urlObj.password) {
+            const auth = Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
+            headers['Authorization'] = `Basic ${auth}`;
+        }
+    } catch (e) {
+        console.warn('Failed to parse BITCOIN_RPC for auth:', e);
+    }
+
+    const response = await fetch(rpcUrl, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Basic ${auth}`
-        },
+        headers,
         body: JSON.stringify({
             jsonrpc: '2.0',
             method,
@@ -30,7 +37,7 @@ async function bitcoinRpc(method: string, params: unknown[] = []): Promise<unkno
         })
     });
 
-    const result = await response.json();
+    const result = await response.json() as { result?: unknown; error?: { message: string } };
     if (result.error) {
         throw new Error(`RPC ${method} failed: ${result.error.message}`);
     }

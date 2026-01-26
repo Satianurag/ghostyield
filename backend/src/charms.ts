@@ -131,9 +131,24 @@ async function getTxHex(txid: string): Promise<string> {
     try {
         const rpcUrl = process.env.BITCOIN_RPC;
         if (rpcUrl) {
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json'
+            };
+
+            // If URL contains credentials, use Basic Auth
+            try {
+                const urlObj = new URL(rpcUrl);
+                if (urlObj.username && urlObj.password) {
+                    const auth = Buffer.from(`${urlObj.username}:${urlObj.password}`).toString('base64');
+                    headers['Authorization'] = `Basic ${auth}`;
+                }
+            } catch (e) {
+                console.warn('Failed to parse BITCOIN_RPC for auth in getTxHex:', e);
+            }
+
             const response = await fetch(rpcUrl, {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers,
                 body: JSON.stringify({
                     jsonrpc: "1.0",
                     id: "gettx",
